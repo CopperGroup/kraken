@@ -1,0 +1,65 @@
+{
+  "name": "piter_pan_007",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@radix-ui/react-collapsible": "^1.1.4",
+    "@radix-ui/react-dialog": "^1.1.7",
+    "@radix-ui/react-label": "^2.1.3",
+    "@radix-ui/react-progress": "^1.1.3",
+    "@radix-ui/react-radio-group": "^1.2.4",
+    "@radix-ui/react-select": "^2.1.7",
+    "@radix-ui/react-separator": "^1.1.3",
+    "@radix-ui/react-slider": "^1.2.4",
+    "@radix-ui/react-slot": "^1.1.2",
+    "@radix-ui/react-switch": "^1.1.4",
+    "@radix-ui/react-tabs": "^1.1.4",
+    "@radix-ui/react-tooltip": "^1.2.0",
+    "@tanstack/react-virtual": "^3.13.6",
+    "axios": "^1.8.3",
+    "class-variance-authority": "^0.7.1",
+    "clone-deep": "^4.0.1",
+    "clsx": "^2.1.1",
+    "fast-xml-parser": "^5.2.3",
+    "lucide-react": "^0.482.0",
+    "mongoose": "^8.13.2",
+    "next": "14.2.24",
+    "puppeteer": "^24.4.0",
+    "puppeteer-cluster": "^0.24.0",
+    "puppeteer-extra": "^3.3.6",
+    "puppeteer-extra-plugin-stealth": "^2.11.2",
+    "react": "^18",
+    "react-dom": "^18",
+    "recharts": "^2.15.2",
+    "systeminformation": "^5.25.11",
+    "tailwind-merge": "^3.0.2",
+    "tailwindcss-animate": "^1.0.7",
+    "uuid": "^11.1.0",
+    "xlsx": "^0.18.5",
+    "xml2js": "^0.6.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/xml2js": "^0.4.14",
+    "eslint": "^8",
+    "eslint-config-next": "14.2.24",
+    "postcss": "^8",
+    "puppeteer-extra-plugin-proxy": "^1.0.2",
+    "tailwindcss": "^3.4.1",
+    "typescript": "^5"
+  },
+  "overrides": {
+    "clone-deep": "^4.0.1"
+  },
+  "resolutions": {
+    "clone-deep": "^4.0.1"
+  }
+}

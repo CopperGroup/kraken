@@ -1,0 +1,137 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 7%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 7%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 142.1 70.6% 45.3%;
+    --primary-foreground: 144.9 80.4% 10%;
+    --secondary: 240 3.7% 15.9%;
+    --secondary-foreground: 0 0% 98%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 240 5% 64.9%;
+    --accent: 12 76.4% 50.8%;
+    --accent-foreground: 0 0% 100%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 240 3.7% 15.9%;
+    --input: 240 3.7% 15.9%;
+    --ring: 142.4 71.8% 29.2%;
+    --radius: 0.5rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Animation classes for the network visualization */
+.node {
+  opacity: 0.7;
+  animation: pulse 3s infinite;
+  animation-delay: calc(var(--index) * 0.2s);
+}
+
+.line {
+  stroke: rgba(99, 102, 241, 0.2);
+  stroke-width: 0.5;
+  stroke-dasharray: 5;
+  animation: dash 30s linear infinite;
+  animation-delay: calc(var(--index) * 0.5s);
+}
+
+.animate-scraping .line {
+  stroke: rgba(99, 102, 241, 0.4);
+  animation-duration: 15s;
+}
+
+.animate-fetching .line {
+  stroke: rgba(16, 185, 129, 0.4);
+  animation-duration: 10s;
+}
+
+.animate-generating .line {
+  stroke: rgba(245, 158, 11, 0.4);
+  animation-duration: 5s;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    r: 2;
+  }
+  50% {
+    opacity: 1;
+    r: 3;
+  }
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: 1000;
+  }
+}
+
+.data-particle {
+  opacity: 0.8;
+  filter: url(#glow);
+}
+
+/* Add these custom scrollbar styles at the end of the file */
+
+/* Custom Scrollbar Styles */
+* {
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(16, 185, 129, 0.5) #222;
+}
+
+/* Chrome, Edge, and Safari */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #222;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(16, 185, 129, 0.5);
+  border-radius: 4px;
+  transition: background-color 0.3s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(16, 185, 129, 0.8);
+}
+
+::-webkit-scrollbar-corner {
+  background: #222;
+}
+
+/* For dark scrollbars in specific containers */
+.dark-scrollbar {
+  scrollbar-color: rgba(16, 185, 129, 0.5) #111;
+}
+
+.dark-scrollbar::-webkit-scrollbar-track {
+  background: #111;
+}
+
+.dark-scrollbar::-webkit-scrollbar-corner {
+  background: #111;
+}
