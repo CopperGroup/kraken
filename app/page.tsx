@@ -1,3 +1,4 @@
+// pages/ScraperDashboard.tsx
 "use client"
 
 import { useState, useEffect, useRef } from "react"
@@ -11,6 +12,19 @@ import AnalyticsTab from "@/components/scraper/analytics-tab"
 import ProductComparisonTab from "@/components/scraper/product-comparison-tab"
 import FilesTab from "@/components/scraper/files-tab"
 
+// --- Import IndexedDB functions ---
+import {
+  initDB,
+  getScraperResults,
+  addScraperResult,
+  deleteScraperResult,
+  clearScraperResults,
+  getFileGroups,
+  addFileGroup,
+  deleteFileGroup,
+  clearFileGroups,
+} from "@/lib/db/scraper-db"
+
 import {
   getCatalogLinks as getXKomCatalogLinks,
   getCatalogPagesLinks as getXKomCatalogPagesLinks,
@@ -23,7 +37,7 @@ import {
 } from "@/lib/scraper/vevor/catalog.actions"
 import { scrapeProductLinks as scrapeVevorProductLinks } from "@/lib/scraper/vevor/product.actions"
 
-import { fetchAndParseSitemap } from "@/lib/scraper/vevor/sitemap.products" 
+import { fetchAndParseSitemap } from "@/lib/scraper/vevor/sitemap.products"
 
 import type { ScraperResult } from "@/lib/types/scraper"
 import { launchBot } from "@/lib/actions/bot.actions"
@@ -153,54 +167,55 @@ export default function ScraperDashboard() {
     }
   }, [])
 
+  // --- REVISED useEffect to load data from IndexedDB ---
   useEffect(() => {
     let mounted = true
     const loadData = async () => {
       try {
-        const savedResults = sessionStorage.getItem("scraperResults")
-        if (savedResults) {
-          const parsedResults = JSON.parse(savedResults, (key, value) => {
-            if (key === "timestamp" || key === "startTime" || key === "endTime") {
-              const date = new Date(value); return !isNaN(date.getTime()) ? date : value
-            }
-            return value
-          })
-          if (Array.isArray(parsedResults) && mounted) {
-            setResults(parsedResults)
-            if (parsedResults.length > 0) setSelectedResultIndex(0)
+        await initDB()
+        const savedResults = await getScraperResults()
+        const savedFileGroups = await getFileGroups()
+
+        if (mounted) {
+          // Sort the results and file groups by timestamp in descending order (newest first)
+          const sortedResults = savedResults.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+          const sortedFileGroups = savedFileGroups.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+          setResults(sortedResults)
+          setFileGroups(sortedFileGroups)
+          if (sortedResults.length > 0) {
+            setSelectedResultIndex(0)
           }
         }
-        const savedFileGroups = sessionStorage.getItem("fileGroups")
-        if (savedFileGroups) {
-          const parsedFileGroups = JSON.parse(savedFileGroups, (key, value) => {
-            if (key === "timestamp") {const date = new Date(value); return !isNaN(date.getTime()) ? date : value}
-            return value
-          })
-          if (Array.isArray(parsedFileGroups) && mounted) setFileGroups(parsedFileGroups)
-        }
-        if (mounted) setIsInitialLoadComplete(true)
       } catch (err) {
-        console.error("Error loading data from session storage:", err)
-        if (mounted) setIsInitialLoadComplete(true)
+        console.error("Error loading data from IndexedDB:", err)
+      } finally {
+        if (mounted) {
+          setIsInitialLoadComplete(true)
+        }
       }
     }
     loadData()
     return () => { mounted = false }
   }, [])
+  // --- END of REVISED useEffect ---
 
-  useEffect(() => {
-    if (isInitialLoadComplete) {
-      try { sessionStorage.setItem("scraperResults", JSON.stringify(results)) }
-      catch (err) { console.error("Error saving results to session storage:", err) }
-    }
-  }, [results, isInitialLoadComplete])
+  // The following useEffects for saving to sessionStorage are now redundant and can be removed.
+  // We don't need to manually sync data on every state change because we'll add it directly to the DB.
+  // You can safely delete the two useEffect blocks below.
+  // useEffect(() => {
+  //   if (isInitialLoadComplete) {
+  //     try { sessionStorage.setItem("scraperResults", JSON.stringify(results)) }
+  //     catch (err) { console.error("Error saving results to session storage:", err) }
+  //   }
+  // }, [results, isInitialLoadComplete])
 
-  useEffect(() => {
-    if (isInitialLoadComplete) {
-      try { sessionStorage.setItem("fileGroups", JSON.stringify(fileGroups)) }
-      catch (err) { console.error("Error saving file groups to session storage:", err) }
-    }
-  }, [fileGroups, isInitialLoadComplete])
+  // useEffect(() => {
+  //   if (isInitialLoadComplete) {
+  //     try { sessionStorage.setItem("fileGroups", JSON.stringify(fileGroups)) }
+  //     catch (err) { console.error("Error saving file groups to session storage:", err) }
+  //   }
+  // }, [fileGroups, isInitialLoadComplete])
+
 
   const formatDate = (date: Date): string => {
     const pad = (num: number) => num.toString().padStart(2, '0');
@@ -212,7 +227,7 @@ export default function ScraperDashboard() {
     const seconds = pad(date.getSeconds());
     return `${year}${month}${day}_${hours}${minutes}${seconds}`;
   }
-  
+
   const launchScraper = async () => {
     cancelRef.current = false
     setIsRunning(true)
@@ -240,11 +255,24 @@ export default function ScraperDashboard() {
           const timestamp = new Date(); let productCount = 0
           try { const products = JSON.parse(productsString); productCount = Array.isArray(products) ? products.length : 0 }
           catch (e) { console.warn("Could not parse products to get count:", e) }
-          const geekResult: ScraperResult = { functionName: "parseGeekXml", timestamp, source: "geek", productsData: productsString, productCount }
-          setResults((prev) => [geekResult, ...prev]); setSelectedResultIndex(0)
-          const runId = `geek-${timestamp.getTime()}`; const groupId = `group-${Date.now()}`
+          const runId = `geek-${timestamp.getTime()}`;
+          const geekResult: ScraperResult = { id: runId, functionName: "parseGeekXml", timestamp, source: "geek", productsData: productsString, productCount }
+
+          // --- REVISED: Add result to IndexedDB and update state ---
+          await addScraperResult(geekResult as any);
+          setResults((prev) => [geekResult, ...prev]);
+          // --- END of REVISED ---
+
+          setSelectedResultIndex(0)
+          const groupId = `group-${Date.now()}`
           const newFileGroup: FileGroup = { id: groupId, runId, source: "geek", timestamp, productCount, functionName: "parseGeekXml", files: [{ id: `${groupId}-xlsx`, runId, type: "xlsx", name: `geek_products_${formatDate(timestamp)}.xlsx`, source: "geek", timestamp, productCount, functionName: "parseGeekXml" }] }
-          setFileGroups((prev) => [...prev, newFileGroup]); setRunProgress(100); setCurrentStep("XML feed processed successfully!"); setActiveTab("files") 
+
+          // --- REVISED: Add file group to IndexedDB and update state ---
+          await addFileGroup(newFileGroup as any);
+          setFileGroups((prev) => [newFileGroup, ...prev]);
+          // --- END of REVISED ---
+
+          setRunProgress(100); setCurrentStep("XML feed processed successfully!"); setActiveTab("files")
         } catch (err: any) { console.error("Error parsing Geek XML:", err); throw new Error(`Error parsing Geek XML: ${err?.message || "Unknown error"}`) }
         finally { setIsRunning(false); setCurrentFunction("") }
         return
@@ -258,144 +286,203 @@ export default function ScraperDashboard() {
       for (const target of targets) {
         if (cancelRef.current) throw new Error("Operation cancelled by user")
         const siteSettings = websiteSettings[target.name] || { scrapingMode: "complete", specificCategoryUrl: "", specificProductUrl: "" }
-        
+
         let productLinksToScrape: string[] = [];
         let catalogPagesDataForMerging: ScraperResult | null = null;
+        const runId = `${target.name}-${new Date().getTime()}`;
 
         if (target.name === "vevor") {
-            if (siteSettings.scrapingMode === "complete") {
-                setCurrentFunction("getVevorCatalogLinks"); setCurrentStep(`[vevor] Fetching initial catalog links (method 1)...`); setRunProgress(5);
-                const vevorCatalogLinksRaw = await getVevorCatalogLinks(target.url, launchConfig.threads);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const vevorCatalogLinksResult: ScraperResult = { ...vevorCatalogLinksRaw, functionName: "getVevorCatalogLinks", timestamp: new Date(), source: target.name };
-                setResults((prev) => [vevorCatalogLinksResult, ...prev]); setSelectedResultIndex(0);
-                const m1Links = vevorCatalogLinksResult.subCategoryLinks || [];
+          if (siteSettings.scrapingMode === "complete") {
+            setCurrentFunction("getVevorCatalogLinks"); setCurrentStep(`[vevor] Fetching initial catalog links (method 1)...`); setRunProgress(5);
+            const vevorCatalogLinksRaw = await getVevorCatalogLinks(target.url, launchConfig.threads);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const vevorCatalogLinksResult: ScraperResult = { id: `${runId}-catalog-links-1`, ...vevorCatalogLinksRaw, functionName: "getVevorCatalogLinks", timestamp: new Date(), source: target.name };
 
-                setCurrentFunction("fetchAndParseSitemap (Vevor Categories)"); setCurrentStep(`[vevor] Fetching supplemental catalog links from sitemap (method 2)...`); setRunProgress(10);
-                const sitemapCategoryLinks = await fetchAndParseSitemap(); 
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const sitemapCategoriesResult: ScraperResult = { functionName: "fetchAndParseSitemapCategories", subCategoryLinks: sitemapCategoryLinks, timestamp: new Date(), source: target.name, productCount: sitemapCategoryLinks.length };
-                setResults((prev) => [sitemapCategoriesResult, ...prev]); setSelectedResultIndex(0);
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(vevorCatalogLinksResult as any);
+            setResults((prev) => [vevorCatalogLinksResult, ...prev]);
+            // --- END of REVISED ---
 
-                setCurrentStep(`[vevor] Combining and deduplicating ${m1Links.length + sitemapCategoryLinks.length} category links...`);
-                const combinedCategoryLinks = Array.from(new Set([...m1Links, ...sitemapCategoryLinks]));
-                setRunProgress(15);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
+            setSelectedResultIndex(0);
+            const m1Links = vevorCatalogLinksResult.subCategoryLinks || [];
 
-                const combinedCategoriesResult: ScraperResult = { functionName: "combineVevorCategories", subCategoryLinks: combinedCategoryLinks, timestamp: new Date(), source: target.name, productCount: combinedCategoryLinks.length };
-                setResults((prev) => [combinedCategoriesResult, ...prev]); setSelectedResultIndex(0);
-                
-                if (!combinedCategoryLinks || combinedCategoryLinks.length === 0) {
-                    setCurrentStep(`[vevor] No category links found from any method. Skipping product link scraping.`); setRunProgress(100); continue;
-                }
+            setCurrentFunction("fetchAndParseSitemap (Vevor Categories)"); setCurrentStep(`[vevor] Fetching supplemental catalog links from sitemap (method 2)...`); setRunProgress(10);
+            const sitemapCategoryLinks = await fetchAndParseSitemap();
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const sitemapCategoriesResult: ScraperResult = { id: `${runId}-sitemap`, functionName: "fetchAndParseSitemapCategories", subCategoryLinks: sitemapCategoryLinks, timestamp: new Date(), source: target.name, productCount: sitemapCategoryLinks.length };
 
-                setCurrentFunction("getVevorCatalogPagesLinks"); setCurrentStep(`[vevor] Scraping product links from ${combinedCategoryLinks.length} combined categories...`); setRunProgress(20);
-                const vevorCatalogPagesRaw = await getVevorCatalogPagesLinks(combinedCategoryLinks, launchConfig.threads);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const vevorCatalogPagesResult: ScraperResult = { ...vevorCatalogPagesRaw, functionName: "getVevorCatalogPagesLinks", timestamp: new Date(), source: target.name };
-                setResults((prev) => [vevorCatalogPagesResult, ...prev]); setSelectedResultIndex(0); setRunProgress(50);
-                
-                if (!vevorCatalogPagesResult.links || vevorCatalogPagesResult.links.length === 0) {
-                    setCurrentStep(`[vevor] No product links found from categories. Skipping product detail scraping.`); setRunProgress(100); continue;
-                }
-                productLinksToScrape = vevorCatalogPagesResult.links;
-                catalogPagesDataForMerging = vevorCatalogPagesResult;
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(sitemapCategoriesResult as any);
+            setResults((prev) => [sitemapCategoriesResult, ...prev]);
+            // --- END of REVISED ---
 
-            } else if (siteSettings.scrapingMode === "specific") {
-                if (!siteSettings.specificCategoryUrl) throw new Error("Vevor specific category URL is not set.");
-                setCurrentFunction("getVevorCatalogPagesLinks"); setCurrentStep(`[vevor] Scraping product links from specific category: ${siteSettings.specificCategoryUrl}`); setRunProgress(30);
-                const vevorCatalogPagesRaw = await getVevorCatalogPagesLinks([siteSettings.specificCategoryUrl], launchConfig.threads);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const vevorCatalogPagesResult: ScraperResult = { ...vevorCatalogPagesRaw, functionName: "getVevorCatalogPagesLinks", timestamp: new Date(), source: target.name };
-                setResults((prev) => [vevorCatalogPagesResult, ...prev]); setSelectedResultIndex(0); setRunProgress(60);
-                if (!vevorCatalogPagesResult.links || vevorCatalogPagesResult.links.length === 0) {
-                    setCurrentStep(`[vevor] No product links found in specific category. Skipping product detail scraping.`); setRunProgress(100); continue;
-                }
-                productLinksToScrape = vevorCatalogPagesResult.links;
-                catalogPagesDataForMerging = vevorCatalogPagesResult;
+            setSelectedResultIndex(0);
 
-            } else if (siteSettings.scrapingMode === "specific-product") {
-                if (!siteSettings.specificProductUrl) throw new Error("Vevor specific product URL is not set.");
-                productLinksToScrape = [siteSettings.specificProductUrl];
+            setCurrentStep(`[vevor] Combining and deduplicating ${m1Links.length + sitemapCategoryLinks.length} category links...`);
+            const combinedCategoryLinks = Array.from(new Set([...m1Links, ...sitemapCategoryLinks]));
+            setRunProgress(15);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+
+            const combinedCategoriesResult: ScraperResult = { id: `${runId}-combined`, functionName: "combineVevorCategories", subCategoryLinks: combinedCategoryLinks, timestamp: new Date(), source: target.name, productCount: combinedCategoryLinks.length };
+
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(combinedCategoriesResult as any);
+            setResults((prev) => [combinedCategoriesResult, ...prev]);
+            // --- END of REVISED ---
+
+            setSelectedResultIndex(0);
+
+            if (!combinedCategoryLinks || combinedCategoryLinks.length === 0) {
+              setCurrentStep(`[vevor] No category links found from any method. Skipping product link scraping.`); setRunProgress(100); continue;
             }
+
+            setCurrentFunction("getVevorCatalogPagesLinks"); setCurrentStep(`[vevor] Scraping product links from ${combinedCategoryLinks.length} combined categories...`); setRunProgress(20);
+            const vevorCatalogPagesRaw = await getVevorCatalogPagesLinks(combinedCategoryLinks, launchConfig.threads);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const vevorCatalogPagesResult: ScraperResult = { id: `${runId}-catalog-pages`, ...vevorCatalogPagesRaw, functionName: "getVevorCatalogPagesLinks", timestamp: new Date(), source: target.name };
+
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(vevorCatalogPagesResult as any);
+            setResults((prev) => [vevorCatalogPagesResult, ...prev]);
+            // --- END of REVISED ---
+
+            setSelectedResultIndex(0); setRunProgress(50);
+
+            if (!vevorCatalogPagesResult.links || vevorCatalogPagesResult.links.length === 0) {
+              setCurrentStep(`[vevor] No product links found from categories. Skipping product detail scraping.`); setRunProgress(100); continue;
+            }
+            productLinksToScrape = vevorCatalogPagesResult.links;
+            catalogPagesDataForMerging = vevorCatalogPagesResult;
+
+          } else if (siteSettings.scrapingMode === "specific") {
+            if (!siteSettings.specificCategoryUrl) throw new Error("Vevor specific category URL is not set.");
+            setCurrentFunction("getVevorCatalogPagesLinks"); setCurrentStep(`[vevor] Scraping product links from specific category: ${siteSettings.specificCategoryUrl}`); setRunProgress(30);
+            const vevorCatalogPagesRaw = await getVevorCatalogPagesLinks([siteSettings.specificCategoryUrl], launchConfig.threads);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const vevorCatalogPagesResult: ScraperResult = { id: `${runId}-specific-catalog`, ...vevorCatalogPagesRaw, functionName: "getVevorCatalogPagesLinks", timestamp: new Date(), source: target.name };
+
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(vevorCatalogPagesResult as any);
+            setResults((prev) => [vevorCatalogPagesResult, ...prev]);
+            // --- END of REVISED ---
+
+            setSelectedResultIndex(0); setRunProgress(60);
+            if (!vevorCatalogPagesResult.links || vevorCatalogPagesResult.links.length === 0) {
+              setCurrentStep(`[vevor] No product links found in specific category. Skipping product detail scraping.`); setRunProgress(100); continue;
+            }
+            productLinksToScrape = vevorCatalogPagesResult.links;
+            catalogPagesDataForMerging = vevorCatalogPagesResult;
+
+          } else if (siteSettings.scrapingMode === "specific-product") {
+            if (!siteSettings.specificProductUrl) throw new Error("Vevor specific product URL is not set.");
+            productLinksToScrape = [siteSettings.specificProductUrl];
+          }
         }
         else {
-            const getCatalogLinksFunc = target.name === "xkom" ? getXKomCatalogLinks : getVevorCatalogLinks;
-            const getCatalogPagesLinksFunc = target.name === "xkom" ? getXKomCatalogPagesLinks : getVevorCatalogPagesLinks;
-            
-            if (siteSettings.scrapingMode === "complete") {
-                setCurrentFunction("getCatalogLinks"); setCurrentStep(`[${target.name}] Fetching initial catalog links...`); setRunProgress(10);
-                const catalogLinksResultRaw = await getCatalogLinksFunc(target.url, launchConfig.threads);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const catalogLinksResult: ScraperResult = { ...catalogLinksResultRaw, functionName: "getCatalogLinks", timestamp: new Date(), source: target.name };
-                setResults((prev) => [catalogLinksResult, ...prev]); setSelectedResultIndex(0); setRunProgress(30);
-                if (!catalogLinksResult.subCategoryLinks || catalogLinksResult.subCategoryLinks.length === 0) {
-                    setCurrentStep(`[${target.name}] No sub-category links found. Skipping.`); continue;
-                }
-                setCurrentFunction("getCatalogPagesLinks"); setCurrentStep(`[${target.name}] Scraping product links from ${catalogLinksResult.subCategoryLinks.length} categories...`); setRunProgress(40);
-                const catalogPagesResultRaw = await getCatalogPagesLinksFunc(catalogLinksResult.subCategoryLinks, launchConfig.threads);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const catalogPagesResult: ScraperResult = { ...catalogPagesResultRaw, functionName: "getCatalogPagesLinks", timestamp: new Date(), source: target.name };
-                setResults((prev) => [catalogPagesResult, ...prev]); setSelectedResultIndex(0); setRunProgress(60);
-                if (!catalogPagesResult.links || catalogPagesResult.links.length === 0) {
-                    setCurrentStep(`[${target.name}] No product links found. Skipping.`); continue;
-                }
-                productLinksToScrape = catalogPagesResult.links;
-                catalogPagesDataForMerging = catalogPagesResult;
-            } else if (siteSettings.scrapingMode === "specific") {
-                if (!siteSettings.specificCategoryUrl) throw new Error(`${target.name} specific category URL is not set.`);
-                setCurrentFunction("getCatalogPagesLinks"); setCurrentStep(`[${target.name}] Scraping product links from specific category: ${siteSettings.specificCategoryUrl}`); setRunProgress(30);
-                const catalogPagesResultRaw = await getCatalogPagesLinksFunc([siteSettings.specificCategoryUrl], launchConfig.threads);
-                if (cancelRef.current) throw new Error("Operation cancelled by user");
-                const catalogPagesResult: ScraperResult = { ...catalogPagesResultRaw, functionName: "getCatalogPagesLinks", timestamp: new Date(), source: target.name };
-                setResults((prev) => [catalogPagesResult, ...prev]); setSelectedResultIndex(0); setRunProgress(60);
-                if (!catalogPagesResult.links || catalogPagesResult.links.length === 0) {
-                   setCurrentStep(`[${target.name}] No product links found in specific category.`); continue;
-                }
-                productLinksToScrape = catalogPagesResult.links;
-                catalogPagesDataForMerging = catalogPagesResult;
-            } else if (siteSettings.scrapingMode === "specific-product") {
-                if (!siteSettings.specificProductUrl) throw new Error(`${target.name} specific product URL is not set.`);
-                productLinksToScrape = [siteSettings.specificProductUrl];
+          const getCatalogLinksFunc = target.name === "xkom" ? getXKomCatalogLinks : getVevorCatalogLinks;
+          const getCatalogPagesLinksFunc = target.name === "xkom" ? getXKomCatalogPagesLinks : getVevorCatalogPagesLinks;
+
+          if (siteSettings.scrapingMode === "complete") {
+            setCurrentFunction("getCatalogLinks"); setCurrentStep(`[${target.name}] Fetching initial catalog links...`); setRunProgress(10);
+            const catalogLinksResultRaw = await getCatalogLinksFunc(target.url, launchConfig.threads);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const catalogLinksResult: ScraperResult = { id: `${runId}-catalog-links`, ...catalogLinksResultRaw, functionName: "getCatalogLinks", timestamp: new Date(), source: target.name };
+
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(catalogLinksResult as any);
+            setResults((prev) => [catalogLinksResult, ...prev]);
+            // --- END of REVISED ---
+
+            setSelectedResultIndex(0); setRunProgress(30);
+            if (!catalogLinksResult.subCategoryLinks || catalogLinksResult.subCategoryLinks.length === 0) {
+              setCurrentStep(`[${target.name}] No sub-category links found. Skipping.`); continue;
             }
+            setCurrentFunction("getCatalogPagesLinks"); setCurrentStep(`[${target.name}] Scraping product links from ${catalogLinksResult.subCategoryLinks.length} categories...`); setRunProgress(40);
+            const catalogPagesResultRaw = await getCatalogPagesLinksFunc(catalogLinksResult.subCategoryLinks, launchConfig.threads);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const catalogPagesResult: ScraperResult = { id: `${runId}-catalog-pages`, ...catalogPagesResultRaw, functionName: "getCatalogPagesLinks", timestamp: new Date(), source: target.name };
+
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(catalogPagesResult as any);
+            setResults((prev) => [catalogPagesResult, ...prev]);
+            // --- END of REVISED ---
+
+            setSelectedResultIndex(0); setRunProgress(60);
+            if (!catalogPagesResult.links || catalogPagesResult.links.length === 0) {
+              setCurrentStep(`[${target.name}] No product links found. Skipping.`); continue;
+            }
+            productLinksToScrape = catalogPagesResult.links;
+            catalogPagesDataForMerging = catalogPagesResult;
+          } else if (siteSettings.scrapingMode === "specific") {
+            if (!siteSettings.specificCategoryUrl) throw new Error(`${target.name} specific category URL is not set.`);
+            setCurrentFunction("getCatalogPagesLinks"); setCurrentStep(`[${target.name}] Scraping product links from specific category: ${siteSettings.specificCategoryUrl}`); setRunProgress(30);
+            const catalogPagesResultRaw = await getCatalogPagesLinksFunc([siteSettings.specificCategoryUrl], launchConfig.threads);
+            if (cancelRef.current) throw new Error("Operation cancelled by user");
+            const catalogPagesResult: ScraperResult = { id: `${runId}-specific-catalog`, ...catalogPagesResultRaw, functionName: "getCatalogPagesLinks", timestamp: new Date(), source: target.name };
+
+            // --- REVISED: Add result to IndexedDB and update state ---
+            await addScraperResult(catalogPagesResult as any);
+            setResults((prev) => [catalogPagesResult, ...prev]);
+            // --- END of REVISED ---
+
+            setSelectedResultIndex(0); setRunProgress(60);
+            if (!catalogPagesResult.links || catalogPagesResult.links.length === 0) {
+              setCurrentStep(`[${target.name}] No product links found in specific category.`); continue;
+            }
+            productLinksToScrape = catalogPagesResult.links;
+            catalogPagesDataForMerging = catalogPagesResult;
+          } else if (siteSettings.scrapingMode === "specific-product") {
+            if (!siteSettings.specificProductUrl) throw new Error(`${target.name} specific product URL is not set.`);
+            productLinksToScrape = [siteSettings.specificProductUrl];
+          }
         }
 
         if (productLinksToScrape.length > 0) {
-            if (cancelRef.current) throw new Error("Operation cancelled by user");
-            const scrapeProductLinksFunc = target.name === "vevor" ? scrapeVevorProductLinks : (target.name === "xkom" ? scrapeXKomProductLinks : scrapeVevorProductLinks);
-            
-            setCurrentFunction("scrapeProductLinks"); setCurrentStep(`[${target.name}] Scraping details for ${productLinksToScrape.length} products...`); setRunProgress(target.name === "vevor" && siteSettings.scrapingMode !== "specific-product" ? 70: 50);
-            
-            const scrapeProductLinksResultRaw = await scrapeProductLinksFunc(productLinksToScrape, launchConfig.threads);
-            if (cancelRef.current) throw new Error("Operation cancelled by user");
+          if (cancelRef.current) throw new Error("Operation cancelled by user");
+          const scrapeProductLinksFunc = target.name === "vevor" ? scrapeVevorProductLinks : (target.name === "xkom" ? scrapeXKomProductLinks : scrapeVevorProductLinks);
 
-            if (catalogPagesDataForMerging && catalogPagesDataForMerging.details && target.name !== "xkom") {
-                scrapeProductLinksResultRaw.products = (scrapeProductLinksResultRaw.products || []).map((p: any) => ({
-                    ...p,
-                    ...(catalogPagesDataForMerging.details![p.url] || {}),
-                }));
-            }
+          setCurrentFunction("scrapeProductLinks"); setCurrentStep(`[${target.name}] Scraping details for ${productLinksToScrape.length} products...`); setRunProgress(target.name === "vevor" && siteSettings.scrapingMode !== "specific-product" ? 70 : 50);
 
-            const timestamp = new Date();
-            const scrapeProductLinksResult: ScraperResult = { ...scrapeProductLinksResultRaw, functionName: "scrapeProductLinks", timestamp, source: target.name };
-            setResults((prev) => [scrapeProductLinksResult, ...prev]); setSelectedResultIndex(0);
+          const scrapeProductLinksResultRaw = await scrapeProductLinksFunc(productLinksToScrape, launchConfig.threads);
+          if (cancelRef.current) throw new Error("Operation cancelled by user");
 
-            const runId = `${target.name}-${timestamp.getTime()}`;
-            const groupId = `group-${Date.now()}`;
-            const newFileGroup: FileGroup = {
-                id: groupId, runId, source: target.name, timestamp,
-                productCount: scrapeProductLinksResult.products?.length || 0,
-                functionName: "scrapeProductLinks",
-                files: [
-                    { id: `${groupId}-xml`, runId, type: "xml", name: `${target.name}_products_${formatDate(timestamp)}.xml`, source: target.name, timestamp, productCount: scrapeProductLinksResult.products?.length || 0, functionName: "scrapeProductLinks" },
-                    { id: `${groupId}-xlsx`, runId, type: "xlsx", name: `${target.name}_products_${formatDate(timestamp)}.xlsx`, source: target.name, timestamp, productCount: scrapeProductLinksResult.products?.length || 0, functionName: "scrapeProductLinks" },
-                ],
-            };
-            setFileGroups((prev) => [...prev, newFileGroup]);
-            setRunProgress(95);
+          if (catalogPagesDataForMerging && catalogPagesDataForMerging.details && target.name !== "xkom") {
+            scrapeProductLinksResultRaw.products = (scrapeProductLinksResultRaw.products || []).map((p: any) => ({
+              ...p,
+              ...(catalogPagesDataForMerging.details![p.url] || {}),
+            }));
+          }
+
+          const timestamp = new Date();
+          const scrapeProductLinksResult: ScraperResult = { id: `${runId}-products`, ...scrapeProductLinksResultRaw, functionName: "scrapeProductLinks", timestamp, source: target.name };
+
+          // --- REVISED: Add result to IndexedDB and update state ---
+          await addScraperResult(scrapeProductLinksResult as any);
+          setResults((prev) => [scrapeProductLinksResult, ...prev]);
+          // --- END of REVISED ---
+
+          setSelectedResultIndex(0);
+
+          const groupId = `group-${Date.now()}`;
+          const newFileGroup: FileGroup = {
+            id: groupId, runId, source: target.name, timestamp,
+            productCount: scrapeProductLinksResult.products?.length || 0,
+            functionName: "scrapeProductLinks",
+            files: [
+              { id: `${groupId}-xml`, runId, type: "xml", name: `${target.name}_products_${formatDate(timestamp)}.xml`, source: target.name, timestamp, productCount: scrapeProductLinksResult.products?.length || 0, functionName: "scrapeProductLinks" },
+              { id: `${groupId}-xlsx`, runId, type: "xlsx", name: `${target.name}_products_${formatDate(timestamp)}.xlsx`, source: target.name, timestamp, productCount: scrapeProductLinksResult.products?.length || 0, functionName: "scrapeProductLinks" },
+            ],
+          };
+
+          // --- REVISED: Add file group to IndexedDB and update state ---
+          await addFileGroup(newFileGroup as any);
+          setFileGroups((prev) => [newFileGroup, ...prev]);
+          // --- END of REVISED ---
+
+          setRunProgress(95);
         } else if (siteSettings.scrapingMode !== "specific-product") {
-            setCurrentStep(`[${target.name}] No product links were found to scrape details.`);
-            setRunProgress(100)
+          setCurrentStep(`[${target.name}] No product links were found to scrape details.`);
+          setRunProgress(100)
         }
 
       }
@@ -415,31 +502,42 @@ export default function ScraperDashboard() {
     }
   }
 
-  const clearAllResults = () => {
-    setResults([]); setSelectedResultIndex(-1); setFileGroups([])
-    sessionStorage.removeItem("scraperResults"); sessionStorage.removeItem("fileGroups")
+  // --- REVISED: Clear all results from IndexedDB and state ---
+  const clearAllResults = async () => {
+    await clearScraperResults();
+    await clearFileGroups();
+    setResults([]);
+    setSelectedResultIndex(-1);
+    setFileGroups([]);
   }
+  // --- END of REVISED ---
 
-  const deleteResult = (index: number) => {
+  // --- REVISED: Delete a specific result from IndexedDB and state ---
+  const deleteResult = async (index: number) => {
     const resultToDelete = results[index]
-    setResults((prev) => { const newResults = [...prev]; newResults.splice(index, 1); return newResults })
     if (resultToDelete) {
-      setFileGroups((prev) => prev.filter((group) => {
-          const expectedRunIdGeneric = `${resultToDelete.source}-${resultToDelete.timestamp.getTime()}`;
-          const expectedRunIdGeek = `geek-${resultToDelete.timestamp.getTime()}`;
-          let matchesRunId = false;
-          const modes = ["complete", "specific", "specific-product"];
-          modes.forEach(mode => {
-            if (group.runId === `${resultToDelete.source}-${resultToDelete.timestamp.getTime()}`) {
-              matchesRunId = true;
-            }
-          });
-          return group.runId !== expectedRunIdGeneric && group.runId !== expectedRunIdGeek && !matchesRunId;
-      }));
+      await deleteScraperResult(resultToDelete.id)
+
+      const fileGroupToDelete = fileGroups.find(fg => fg.runId === resultToDelete.id || fg.runId.startsWith(resultToDelete.source) && fg.timestamp.getTime() === resultToDelete.timestamp.getTime());
+      if (fileGroupToDelete) {
+        await deleteFileGroup(fileGroupToDelete.id);
+      }
     }
+
+    setResults((prev) => { const newResults = [...prev]; newResults.splice(index, 1); return newResults })
+    setFileGroups((prev) => {
+      if (resultToDelete) {
+        const expectedRunId = `${resultToDelete.source}-${resultToDelete.timestamp.getTime()}`;
+        return prev.filter(group => group.runId !== expectedRunId && group.runId !== resultToDelete.id);
+      }
+      return prev;
+    });
+
     if (selectedResultIndex === index) setSelectedResultIndex(results.length > 1 ? Math.max(0, index - 1) : -1)
     else if (selectedResultIndex > index) setSelectedResultIndex(selectedResultIndex - 1)
   }
+  // --- END of REVISED ---
+
 
   useEffect(() => {
     if (results.length === 0 && activeTab !== "launch") setActiveTab("launch")
@@ -454,10 +552,10 @@ export default function ScraperDashboard() {
           {activeTab === "launch" && (
             <LaunchTab launchConfig={launchConfig} handleConfigChange={handleConfigChange} websiteSettings={websiteSettings} updateWebsiteSettings={updateWebsiteSettings} xmlSettings={xmlSettings} updateXmlSettings={updateXmlSettings} isRunning={isRunning} error={error} runProgress={runProgress} currentStep={currentStep} currentFunction={currentFunction} launchScraper={launchScraper} />
           )}
-          {activeTab === "stats" && ( <StatsTab results={results} selectedResultIndex={selectedResultIndex} setSelectedResultIndex={setSelectedResultIndex} /> )}
+          {activeTab === "stats" && (<StatsTab results={results} selectedResultIndex={selectedResultIndex} setSelectedResultIndex={setSelectedResultIndex} />)}
           {activeTab === "logs" && <LogsTab selectedResult={selectedResult} />}
-          {activeTab === "results" && ( <ResultsTab selectedResult={selectedResult} currentPage={currentPage} setCurrentPage={setCurrentPage} itemsPerPage={itemsPerPage} setItemsPerPage={setItemsPerPage} /> )}
-          {activeTab === "files" && ( <FilesTab results={results} fileGroups={fileGroups} setFileGroups={setFileGroups} /> )}
+          {activeTab === "results" && (<ResultsTab selectedResult={selectedResult} currentPage={currentPage} setCurrentPage={setCurrentPage} itemsPerPage={itemsPerPage} setItemsPerPage={setItemsPerPage} />)}
+          {activeTab === "files" && (<FilesTab results={results} fileGroups={fileGroups} setFileGroups={setFileGroups} />)}
           {activeTab === "comparison" && <ProductComparisonTab results={results} />}
           {activeTab === "analytics" && <AnalyticsTab results={results} />}
         </main>

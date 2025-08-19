@@ -27,6 +27,7 @@
     "clone-deep": "^4.0.1",
     "clsx": "^2.1.1",
     "fast-xml-parser": "^5.2.3",
+    "idb": "^8.0.3",
     "lucide-react": "^0.482.0",
     "mongoose": "^8.13.2",
     "next": "14.2.24",
