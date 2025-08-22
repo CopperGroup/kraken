@@ -213,8 +213,8 @@ export default function FilesTab({ results, fileGroups, setFileGroups }: FilesTa
       setError(null)
 
       // Find the associated scraping result
-      const result = results.find((r) => `${r.source}-${r.timestamp.getTime()}` === file.runId)
-      console.log(results.map(r => `${r.source}-${r.timestamp.getTime()}`), file.runId)
+      const result = results.find((r) => `${r.source}-${r.id}`.includes(file.runId))
+      console.log(results.map(r => `${r.source}-${r.id}`), file.runId)
 
       if (!result) {
         throw new Error("Could not find data for this file")
@@ -238,6 +238,7 @@ export default function FilesTab({ results, fileGroups, setFileGroups }: FilesTa
           throw new Error("No product data found for this file")
         }
 
+        console.log(result.products)
         // For regular scraping results, we use the products field
         body = JSON.stringify(result.products)
       } else {
@@ -284,7 +285,10 @@ export default function FilesTab({ results, fileGroups, setFileGroups }: FilesTa
       setError(null)
 
       // Find the associated scraping result
-      const result = results.find((r) => `${r.source}-${r.timestamp.getTime()}` === group.runId)
+      const result = results.find((r) => `${r.source}-${r.id}`.includes(group.runId))
+
+      results.map((r) => console.log(`${r.source}-${r.id}`, group.runId))
+      console.log(group.runId)
 
       if (!result) {
         throw new Error("Could not find data for these files")

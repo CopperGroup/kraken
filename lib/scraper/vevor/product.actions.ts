@@ -223,8 +223,8 @@ const scrapeSingleProduct: TaskFunction<ProductData> = async (
         try {
             await page.waitForSelector('span', { timeout: 20000 }); // wait until at least one <span> shows up
             const availabilityHandle = await page.waitForFunction(() => {
-                return Array.from(document.querySelectorAll('span')).some(span => span.textContent?.trim() === 'W Magazynie');
-            }, { timeout: 20000 });
+                return Array.from(document.querySelectorAll('span')).some(span => span.textContent?.trim().includes('W Magazynie'));
+            }, { timeout: 40000 });
             isAvailable = await availabilityHandle.jsonValue();
         } catch (availError) {
             console.warn(`[Task Worker AVAILABILITY Failed] URL: ${url} - Error: ${availError instanceof Error ? availError.message : String(availError)}`);
